@@ -95,6 +95,9 @@ export default function ChatPage() {
   const [inputValue, setInputValue] = useState("");
   const [contractDraft, setContractDraft] = useState<any | null>(null);
   const [templateKey, setTemplateKey] = useState<"compra-venda" | "financiamento-go" | "financiamento-ms">("compra-venda");
+  const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
   
   // ✅ Armazena instruções de edição ANTES do draft ser criado
   const [pendingInstructions, setPendingInstructions] = useState<PendingInstruction[]>([]);
@@ -130,7 +133,7 @@ export default function ChatPage() {
     const formData = new FormData();
     formData.append("file", file);
 
-    const res = await fetch("http://localhost:8000/api/ocr", {
+    const res = await fetch(`${API_BASE_URL}:8000/api/ocr`, {
       method: "POST",
       body: formData,
     });
@@ -180,7 +183,7 @@ export default function ChatPage() {
 
     // ✅ SE JÁ TEM DRAFT → Edita o draft existente
     if (userText && contractDraft) {
-      const res = await fetch("http://localhost:8000/api/edit", {
+      const res = await fetch(`${API_BASE_URL}:8000/api/edit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -210,7 +213,7 @@ export default function ChatPage() {
     else if (userText) {
       console.log("📤 Chamando /api/detect-edit com:", { message: userText });
       
-      const editRes = await fetch("http://localhost:8000/api/detect-edit", {
+      const editRes = await fetch(`${API_BASE_URL}:8000/api/detect-edit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -241,7 +244,7 @@ export default function ChatPage() {
         ]);
       } else {
         // Chat normal
-        const chatRes = await fetch("http://localhost:8000/api/chat", {
+        const chatRes = await fetch(`${API_BASE_URL}:8000/api/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -282,7 +285,7 @@ export default function ChatPage() {
       pending_instructions: pendingInstructions
     });
 
-    const res = await fetch("http://localhost:8000/api/draft", {
+    const res = await fetch(`${API_BASE_URL}:8000/api/draft`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -327,7 +330,7 @@ export default function ChatPage() {
       return;
     }
 
-    const res = await fetch("http://localhost:8000/api/contract/generate", {
+    const res = await fetch(`${API_BASE_URL}/api/contract/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
