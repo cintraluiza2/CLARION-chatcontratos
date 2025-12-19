@@ -1,4 +1,5 @@
 google-genai
+google-generativeai
 pydantic
 python-docx
 streamlit
