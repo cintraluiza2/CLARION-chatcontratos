@@ -17,6 +17,12 @@ type Message = {
   content: string;
 };
 
+type PendingInstruction = {
+  path: string;
+  new_value: any;
+  description: string;
+};
+
 /* =========================
    UTILS
    ========================= */
@@ -59,41 +65,19 @@ const setByPath = (obj: any, path: string, value: any) => {
   return clone;
 };
 
-/**
- * Garante que o que vai para `Message.content` SEMPRE seja string,
- * mesmo se o backend vier com { response, updates } ou aninhamentos.
- */
 const unwrapResponseText = (payload: any): string => {
   if (payload == null) return "";
   if (typeof payload === "string") return payload;
-
-  // casos comuns: { response: "texto" }
   if (typeof payload.response === "string") return payload.response;
-
-  // caso: { response: { response: "texto", updates: [...] } }
   if (payload.response && typeof payload.response === "object") {
     const inner = unwrapResponseText(payload.response);
     if (inner) return inner;
   }
-
-  // fallback (pra não quebrar UI)
   try {
     return JSON.stringify(payload, null, 2);
   } catch {
     return String(payload);
   }
-};
-
-/** Pega updates em formatos diferentes (raiz ou aninhado) */
-const unwrapUpdates = (payload: any): any[] => {
-  if (!payload) return [];
-  if (Array.isArray(payload.updates)) return payload.updates;
-
-  if (payload.response && typeof payload.response === "object") {
-    if (Array.isArray(payload.response.updates)) return payload.response.updates;
-  }
-
-  return [];
 };
 
 /* =========================
@@ -111,8 +95,9 @@ export default function ChatPage() {
   const [inputValue, setInputValue] = useState("");
   const [contractDraft, setContractDraft] = useState<any | null>(null);
   const [templateKey, setTemplateKey] = useState<"compra-venda" | "financiamento-go" | "financiamento-ms">("compra-venda");
-  const [showDraftModal, setShowDraftModal] = useState(false);
-
+  
+  // ✅ Armazena instruções de edição ANTES do draft ser criado
+  const [pendingInstructions, setPendingInstructions] = useState<PendingInstruction[]>([]);
 
   /* =========================
      AUTH GUARD
@@ -122,9 +107,6 @@ export default function ChatPage() {
     if (!email) router.replace("/");
   }, [router]);
 
-  /* =========================
-     LOGOUT
-     ========================= */
   const handleLogout = () => {
     localStorage.removeItem("email");
     router.push("/");
@@ -136,7 +118,7 @@ export default function ChatPage() {
   const addFiles = (files: File[]) => {
     setPendingFiles((prev) => {
       const merged = [...prev, ...files];
-      return merged.slice(0, 20); // hard limit
+      return merged.slice(0, 20);
     });
   };
 
@@ -154,8 +136,6 @@ export default function ChatPage() {
     });
 
     const data = await res.json();
-
-    // mantém sua lógica original, mas com fallback caso o backend tenha mudado o formato
     const extracted = data.result ?? data.data ?? data;
     const fullText = data.text ?? data.result_text ?? data.result ?? "";
 
@@ -164,13 +144,12 @@ export default function ChatPage() {
       [file.name]: extracted,
     }));
 
-    // ✅ IMPORTANTÍSSIMO: content PRECISA ser string
     setMessages((prev) => [
       ...prev,
       {
         id: Date.now(),
         role: "bot",
-        content: ` **${file.name}**\n\n${typeof fullText === "string" ? fullText : JSON.stringify(fullText, null, 2)}`,
+        content: `📄 **${file.name}**\n\n${typeof fullText === "string" ? fullText : JSON.stringify(fullText, null, 2)}`,
       },
     ]);
   };
@@ -180,7 +159,7 @@ export default function ChatPage() {
      ========================= */
   const handleSend = async () => {
     if (!inputValue.trim() && pendingFiles.length === 0) return;
-
+    
     const userText = inputValue.trim();
 
     if (userText) {
@@ -193,141 +172,192 @@ export default function ChatPage() {
 
     setLoading(true);
 
-    // upload files first
+    // Upload files
     for (const file of pendingFiles) {
       await handleUpload(file);
     }
     setPendingFiles([]);
 
-    if (userText) {
-      const res = await fetch("http://localhost:8000/api/chat", {
+    // ✅ SE JÁ TEM DRAFT → Edita o draft existente
+    if (userText && contractDraft) {
+      const res = await fetch("http://localhost:8000/api/edit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          history: messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          documents,
+          draft: contractDraft,
           message: userText,
         }),
       });
 
       const data = await res.json();
 
-const botText = unwrapResponseText(data);
+      if (data.instruction) {
+        setContractDraft((prev: any) =>
+          setByPath(prev, data.instruction.path, data.instruction.new_value)
+        );
 
-setMessages((prev) => [
-  ...prev,
-  {
-    id: Date.now() + 1,
-    role: "bot",
-    content: botText,
-  },
-]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 2,
+            role: "bot",
+            content: `✏️ **Alteração aplicada:**\n\`${data.instruction.path}\` → \`${JSON.stringify(data.instruction.new_value)}\`\n\n${data.instruction.description || ""}`,
+          },
+        ]);
+      }
+    }
+    // ✅ SE NÃO TEM DRAFT → Verifica se é instrução de edição
+    else if (userText) {
+      console.log("📤 Chamando /api/detect-edit com:", { message: userText });
+      
+      const editRes = await fetch("http://localhost:8000/api/detect-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userText,
+          documents,
+        }),
+      });
 
-// 👇 NOVO: aplica instrução semântica (se existir)
-if (data.instruction) {
-  setDocuments((prev) =>
-    applyInstruction(prev, data.instruction)
-  );
-}
+      const editData = await editRes.json();
 
+      console.log("📥 Resposta do detect-edit:", editData);
+
+      if (editData.is_edit_instruction && editData.instruction) {
+        // Armazena a instrução para aplicar depois
+        setPendingInstructions((prev) => {
+          const updated = [...prev, editData.instruction];
+          console.log("💾 Instruções pendentes:", updated);
+          return updated;
+        });
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 1,
+            role: "bot",
+            content: `✅ **Entendido!** Quando gerar o contrato, vou aplicar:\n\n**${editData.instruction.description}**\n\`${editData.instruction.path}\` = \`${JSON.stringify(editData.instruction.new_value)}\``,
+          },
+        ]);
+      } else {
+        // Chat normal
+        const chatRes = await fetch("http://localhost:8000/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            history: messages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+            documents,
+            message: userText,
+          }),
+        });
+
+        const chatData = await chatRes.json();
+        const botText = unwrapResponseText(chatData);
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 1,
+            role: "bot",
+            content: botText,
+          },
+        ]);
+      }
     }
 
     setLoading(false);
   };
 
-const prepareContractDraft = async () => {
-  setLoading(true);
+  /* =========================
+     PREPARAR DRAFT
+     ========================= */
+  const prepareContractDraft = async () => {
+    setLoading(true);
 
-  const res = await fetch("http://localhost:8000/api/draft", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      documents, // usa o estado atualizado com alterações do chat
-    }),
-  });
-
-  if (!res.ok) {
-    setLoading(false);
-    alert("Erro ao preparar dados do contrato");
-    return;
-  }
-
-  const data = await res.json();
-
-
-  setContractDraft(data);
-  setShowDraftModal(true);
-
-  setLoading(false);
-};
-
-const applyInstruction = (docs: any, instruction: any) => {
-  if (!instruction || !docs) return docs;
-
-  const clone = structuredClone(docs);
-
-  if (instruction.action === "rename_party") {
-    clone.partes = clone.partes?.map((p: any) => {
-      if (
-        p.nome &&
-        p.nome.toUpperCase() === instruction.target?.toUpperCase()
-      ) {
-        return { ...p, nome: instruction.value };
-      }
-      return p;
+    console.log("📤 Enviando para /api/draft:", {
+      documents: Object.keys(documents),
+      pending_instructions: pendingInstructions
     });
-  }
 
-  if (instruction.action === "update_imovel") {
-    if (!clone.imovel) clone.imovel = {};
-    clone.imovel[instruction.field] = instruction.value;
-  }
+    const res = await fetch("http://localhost:8000/api/draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        documents,
+        pending_instructions: pendingInstructions,
+      }),
+    });
 
-  return clone;
-};
+    if (!res.ok) {
+      setLoading(false);
+      alert("Erro ao preparar dados do contrato");
+      return;
+    }
 
-const generateContract = async () => {
-  if (!contractDraft) {
-    alert("Prepare os dados do contrato primeiro.");
-    return;
-  }
+    const data = await res.json();
 
-  const res = await fetch("http://localhost:8000/api/contract/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      template: templateKey,
-      draft: contractDraft,
-      extra_text: "",
-    }),
-  });
+    console.log("📥 Draft recebido:", data);
 
-  if (!res.ok) {
-    const err = await res.text().catch(() => "Erro ao gerar contrato");
-    alert(err);
-    return;
-  }
+    setContractDraft(data);
+    
+    if (pendingInstructions.length > 0) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          role: "bot",
+          content: `📋 **Draft criado!** Apliquei ${pendingInstructions.length} alteração(ões):\n\n${pendingInstructions.map((i, idx) => `${idx + 1}. ${i.description}`).join('\n')}`,
+        },
+      ]);
+      setPendingInstructions([]);
+    }
 
-  const blob = await res.blob();
-  const url = window.URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `contrato_${templateKey}.docx`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-
-  window.URL.revokeObjectURL(url);
-};
-
-
+    setLoading(false);
+  };
 
   /* =========================
-     GLOBAL DRAG
+     GERAR CONTRATO
+     ========================= */
+  const generateContract = async () => {
+    if (!contractDraft) {
+      alert("Prepare os dados do contrato primeiro.");
+      return;
+    }
+
+    const res = await fetch("http://localhost:8000/api/contract/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template: templateKey,
+        draft: contractDraft,
+        extra_text: "",
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text().catch(() => "Erro ao gerar contrato");
+      alert(err);
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `contrato_${templateKey}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(url);
+  };
+
+  /* =========================
+     DRAG & DROP
      ========================= */
   const onDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -356,7 +386,6 @@ const generateContract = async () => {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      {/* DRAG OVERLAY */}
       {dragging && (
         <div className="absolute inset-0 z-50 bg-black/40 flex items-center justify-center pointer-events-none">
           <div className="rounded-xl bg-white px-6 py-4 text-sm font-medium shadow-lg">
@@ -387,79 +416,49 @@ const generateContract = async () => {
             />
           )}
         </main>
-{contractDraft && (
-  <div className="border-t border-gray-200 bg-amber-50 px-6 py-4 text-black">
-    <h2 className="text-lg font-semibold mb-3 text-black">
-      📄 Dados consolidados do contrato
-    </h2>
 
-    <pre
-      className="
-        bg-white
-        border border-gray-300
-        rounded-lg
-        p-4
-        text-sm
-        text-black
-        overflow-auto
-        max-h-[300px]
-        whitespace-pre-wrap
-      "
-    >
-      {JSON.stringify(contractDraft, null, 2)}
-    </pre>
+        {contractDraft && (
+          <div className="border-t border-gray-200 bg-amber-50 px-6 py-4 text-black">
+            <h2 className="text-lg font-semibold mb-3 text-black">
+              📄 Dados consolidados do contrato
+            </h2>
 
-<div className="mt-4 flex items-center gap-3">
-  <label className="text-sm text-black font-medium">Modelo:</label>
+            <pre className="bg-white border border-gray-300 rounded-lg p-4 text-sm text-black overflow-auto max-h-[300px] whitespace-pre-wrap">
+              {JSON.stringify(contractDraft, null, 2)}
+            </pre>
 
-  <select
-    value={templateKey}
-    onChange={(e) => setTemplateKey(e.target.value as any)}
-    className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-black"
-  >
-    <option value="compra-venda">À vista</option>
-    <option value="financiamento-go">Financiamento Goiânia</option>
-    <option value="financiamento-ms">Financiamento Aparecida</option>
-  </select>
+            <div className="mt-4 flex items-center gap-3">
+              <label className="text-sm text-black font-medium">Modelo:</label>
 
-  <button
-    onClick={generateContract}
-    className="h-10 px-4 rounded-lg bg-amber-500 text-black font-medium hover:brightness-110"
-    title="Gerar e baixar .docx"
-  >
-    Gerar contrato (.docx)
-  </button>
-</div>
+              <select
+                value={templateKey}
+                onChange={(e) => setTemplateKey(e.target.value as any)}
+                className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-black"
+              >
+                <option value="compra-venda">À vista</option>
+                <option value="financiamento-go">Financiamento Goiânia</option>
+                <option value="financiamento-ms">Financiamento Aparecida</option>
+              </select>
 
-    <div className="mt-4 flex gap-3">
-      <button
-        onClick={() => setContractDraft(null)}
-        className="
-          px-4 py-2
-          rounded-lg
-          border border-gray-300
-          text-black
-          hover:bg-gray-100
-        "
-      >
-        Voltar ao chat
-      </button>
+              <button
+                onClick={generateContract}
+                className="h-10 px-4 rounded-lg bg-amber-500 text-black font-medium hover:brightness-110"
+              >
+                Gerar contrato (.docx)
+              </button>
+            </div>
 
-      <button
-        className="
-          px-4 py-2
-          rounded-lg
-          bg-amber-500
-          text-black
-          font-medium
-          hover:brightness-110
-        "
-      >
-        Confirmar dados
-      </button>
-    </div>
-  </div>
-)}
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={() => setContractDraft(null)}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-black hover:bg-gray-100"
+              >
+                Voltar ao chat
+              </button>
+            </div>
+          </div>
+        )}
+
         <ChatInput
           value={inputValue}
           onChange={setInputValue}
@@ -470,7 +469,6 @@ const generateContract = async () => {
           onPrepareDraft={prepareContractDraft}
         />
       </div>
-
     </div>
   );
 }

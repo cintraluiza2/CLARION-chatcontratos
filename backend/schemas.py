@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Any
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -16,7 +16,7 @@ class Imovel(BaseModel):
     matricula: Optional[str] = None
     cidade: str
     area_total: Optional[str] = None
-    inscricao_municipal: Optional[str] = None
+    imobiliaria: str
 
 class DocumentoUnificado(BaseModel):
     tipo_documento: Literal[
@@ -55,14 +55,13 @@ class ContractDraft(BaseModel):
 
     forma_pagamento: Optional[str] = None
 
-    documentos_utilizados: List[str] = Field(
-        default_factory=list,
-        description="Nomes dos documentos usados na consolidação"
-    )
 
     pendencias: List[str] = Field(
         default_factory=list,
         description="Dados ausentes ou inconsistentes que precisam confirmação"
     )
 
-    observacoes: Optional[str] = None
+class UniversalInstruction(BaseModel):
+    path: str
+    new_value: Any
+    description: str

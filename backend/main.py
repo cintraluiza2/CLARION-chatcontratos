@@ -1,22 +1,23 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File
 from ocr import analisar_documento
 from chat import chat_with_context
 import os
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
-from draft import prepare_contract_draft
+from draft import prepare_contract_draft, apply_instructions_to_draft
 from pydantic import BaseModel
-from typing import Literal, Any, Dict
+from typing import Literal, Any, Dict, List, Optional
 from gerar_contrato import gerar_contrato_docx_bytes
 from fastapi.responses import Response
-
+from fastapi import HTTPException
+from edit_draft import edit_contract_draft, detect_edit_instruction
 
 load_dotenv()
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,21 +28,37 @@ class ContractGeneratePayload(BaseModel):
     draft: Dict[str, Any]
     extra_text: str | None = None
 
+class DraftPayload(BaseModel):
+    documents: Dict[str, Any]
+    pending_instructions: List[Dict[str, Any]] = []
+
+# ✅ NOVO ENDPOINT: Detecta se mensagem é instrução de edição
+@app.post("/api/detect-edit")
+def detect_edit_endpoint(payload: dict):
+    message = payload.get("message")
+    documents = payload.get("documents", {})
+    
+    if not message:
+        return {"is_edit_instruction": False}
+    
+    try:
+        result = detect_edit_instruction(message, documents)
+        return result
+    except Exception as e:
+        return {"is_edit_instruction": False, "error": str(e)}
+
 @app.post("/api/ocr")
 async def ocr_endpoint(file: UploadFile = File(...)):
     result = analisar_documento(file)
-
     return {
         "filename": file.filename,
         "text": result["text"],
         "data": result["data"],
     }
 
-
 @app.post("/api/chat")
 async def chat_endpoint(payload: dict):
     api_key = os.getenv("AI_API_KEY")
-
     if not api_key:
         raise RuntimeError("AI_API_KEY não encontrada no ambiente")
 
@@ -52,20 +69,42 @@ async def chat_endpoint(payload: dict):
         extracted_documents=payload.get("documents", {}),
         user_message=payload["message"],
     )
-
     return {"response": response}
-
 
 @app.post("/api/draft")
 async def contract_draft_endpoint(payload: dict):
     documents = payload.get("documents")
+    pending_instructions = payload.get("pending_instructions", [])
+    
+    print(f"\n📥 Recebido em /api/draft:")
+    print(f"   - Documentos: {len(documents)} arquivo(s)")
+    print(f"   - Instruções pendentes: {len(pending_instructions)}")
+    
+    if pending_instructions:
+        print(f"\n📋 Instruções recebidas:")
+        for i, inst in enumerate(pending_instructions):
+            print(f"   {i+1}. {inst}")
 
     if not documents:
         return {"error": "Nenhum documento fornecido"}
 
+    # Gera o draft base
+    print("\n🔨 Gerando draft base...")
     draft = prepare_contract_draft(documents)
+    
+    # Converte para dict se necessário
+    if hasattr(draft, 'model_dump'):
+        draft = draft.model_dump()
+    
+    print(f"\n📄 Draft base gerado:")
+    print(draft)
+    
+    # Aplica instruções pendentes
+    if pending_instructions:
+        print(f"\n🔧 Aplicando {len(pending_instructions)} instruções...")
+        draft = apply_instructions_to_draft(draft, pending_instructions)
+    
     return draft
-
 
 @app.post("/api/contract/generate")
 def contract_generate(payload: ContractGeneratePayload):
@@ -87,3 +126,17 @@ def contract_generate(payload: ContractGeneratePayload):
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+@app.post("/api/edit")
+def edit_draft(payload: dict):
+    draft = payload.get("draft")
+    message = payload.get("message")
+
+    if not draft or not message:
+        raise HTTPException(status_code=400, detail="draft e message são obrigatórios")
+
+    try:
+        instruction = edit_contract_draft(draft, message)
+        return {"instruction": instruction.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
