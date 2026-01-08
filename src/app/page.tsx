@@ -2,6 +2,8 @@
 
 import { useEffect, useState, DragEvent } from "react";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 import ChatSidebar from "../components/ChatSideBar";
 import ChatHeader from "../components/ChatHeader";
@@ -88,9 +90,11 @@ export default function ChatPage() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [documents, setDocuments] = useState<Record<string, any>>({});
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isPendenciasOpen, setIsPendenciasOpen] = useState(true);
+  const [isJsonOpen, setIsJsonOpen] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [blockingMessage, setBlockingMessage] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const [contractDraft, setContractDraft] = useState<any | null>(null);
@@ -118,7 +122,10 @@ export default function ChatPage() {
   /* =========================
      FILES
      ========================= */
-  const addFiles = (files: File[]) => {
+  /* =========================
+     FILES
+     ========================= */
+  const addFiles = async (files: File[]) => {
     const allowedExtensions = [".pdf", ".png", ".jpg", ".jpeg", ".docx", ".xlsx"];
     const validFiles = files.filter(file => {
       const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
@@ -131,17 +138,35 @@ export default function ChatPage() {
 
     if (validFiles.length === 0) return;
 
-    setPendingFiles((prev) => {
-      const merged = [...prev, ...validFiles];
-      if (merged.length > 20) {
-        alert("O limite máximo é de 20 arquivos simultâneos.");
-      }
-      return merged.slice(0, 20);
-    });
-  };
+    if (validFiles.length === 0) return;
 
-  const removeFile = (index: number) => {
-    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+    setBlockingMessage("Processando documentos... Por favor, aguarde o término do OCR antes de continuar.");
+
+    for (const file of validFiles) {
+      const tempId = Date.now();
+      setMessages(prev => [...prev, {
+        id: tempId,
+        role: "bot",
+        content: `⏳ Processando ${file.name}...`
+      }]);
+
+      await handleUpload(file);
+
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+    }
+
+    toast.success("Dados enviados!", {
+      style: {
+        background: "#22c55e",
+        color: "#fff",
+      },
+      iconTheme: {
+        primary: "#fff",
+        secondary: "#22c55e",
+      },
+    });
+
+    setBlockingMessage(null);
   };
 
   const handleUpload = async (file: File) => {
@@ -197,25 +222,17 @@ export default function ChatPage() {
      SEND MESSAGE
      ========================= */
   const handleSend = async () => {
-    if (!inputValue.trim() && pendingFiles.length === 0) return;
-
     const userText = inputValue.trim();
 
-    if (userText) {
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now(), role: "user", content: userText },
-      ]);
-      setInputValue("");
-    }
+    if (!userText) return;
+
+    setMessages((prev) => [
+      ...prev,
+      { id: Date.now(), role: "user", content: userText },
+    ]);
+    setInputValue("");
 
     setLoading(true);
-
-    // Upload files
-    for (const file of pendingFiles) {
-      await handleUpload(file);
-    }
-    setPendingFiles([]);
 
     // ✅ SE JÁ TEM DRAFT → Edita o draft existente
     if (userText && contractDraft) {
@@ -362,6 +379,7 @@ export default function ChatPage() {
      ========================= */
   const prepareContractDraft = async () => {
     setLoading(true);
+    setBlockingMessage("Consolidando dados do contrato... Por favor, aguarde.");
 
     console.log("📤 Enviando para /api/draft:", {
       documents: Object.keys(documents),
@@ -397,6 +415,7 @@ export default function ChatPage() {
       alert(errorMessage);
     } finally {
       setLoading(false);
+      setBlockingMessage(null);
     }
   };
 
@@ -408,6 +427,8 @@ export default function ChatPage() {
       alert("Prepare os dados do contrato primeiro.");
       return;
     }
+
+    setBlockingMessage("Gerando arquivo do contrato... Por favor, aguarde.");
 
     const res = await fetch(`${API_BASE_URL}/api/contract/generate`, {
       method: "POST",
@@ -436,6 +457,7 @@ export default function ChatPage() {
     a.remove();
 
     window.URL.revokeObjectURL(url);
+    setBlockingMessage(null);
   };
 
   /* =========================
@@ -476,6 +498,16 @@ export default function ChatPage() {
         </div>
       )}
 
+      {blockingMessage && (
+        <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center backdrop-blur-sm">
+          <div className="rounded-xl bg-white px-8 py-6 text-center shadow-2xl">
+            <div className="mb-4 text-4xl animate-bounce">⏳</div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">Aguarde...</h3>
+            <p className="text-gray-500 text-sm">{blockingMessage}</p>
+          </div>
+        </div>
+      )}
+
       <ChatSidebar
         open={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
@@ -506,19 +538,44 @@ export default function ChatPage() {
             </h2>
 
             {contractDraft.pendencias && contractDraft.pendencias.length > 0 && (
-              <div className="mb-4 rounded-lg bg-red-100 border border-red-300 p-4">
-                <h3 className="text-sm font-bold text-red-700 mb-2">⚠️ Pendências Identificadas:</h3>
-                <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
-                  {contractDraft.pendencias.map((p: string, i: number) => (
-                    <li key={i}>{p}</li>
-                  ))}
-                </ul>
+              <div className="mb-4 rounded-lg bg-red-100 border border-red-300 overflow-hidden">
+                <div
+                  className="flex items-center justify-between p-4 cursor-pointer hover:bg-red-50"
+                  onClick={() => setIsPendenciasOpen(!isPendenciasOpen)}
+                >
+                  <h3 className="text-sm font-bold text-red-700 flex items-center gap-2">
+                    ⚠️ Pendências Identificadas ({contractDraft.pendencias.length})
+                  </h3>
+                  {isPendenciasOpen ? <ChevronUp size={18} className="text-red-700" /> : <ChevronDown size={18} className="text-red-700" />}
+                </div>
+
+                {isPendenciasOpen && (
+                  <ul className="list-disc list-inside text-sm text-red-600 space-y-1 p-4 pt-0">
+                    {contractDraft.pendencias.map((p: string, i: number) => (
+                      <li key={i}>{p}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
 
-            <pre className="bg-white border border-gray-300 rounded-lg p-4 text-sm text-black overflow-auto max-h-[300px] whitespace-pre-wrap">
-              {JSON.stringify(contractDraft, null, 2)}
-            </pre>
+            <div className="bg-white border border-gray-300 rounded-lg overflow-hidden">
+              <div
+                className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-300 cursor-pointer hover:bg-gray-100"
+                onClick={() => setIsJsonOpen(!isJsonOpen)}
+              >
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  Dados JSON
+                </span>
+                {isJsonOpen ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+              </div>
+
+              {isJsonOpen && (
+                <pre className="p-4 text-sm text-black overflow-auto max-h-[300px] whitespace-pre-wrap">
+                  {JSON.stringify(contractDraft, null, 2)}
+                </pre>
+              )}
+            </div>
 
             <div className="mt-4 flex items-center gap-3">
               <label className="text-sm text-black font-medium">Modelo:</label>
@@ -555,11 +612,10 @@ export default function ChatPage() {
         <ChatInput
           value={inputValue}
           onChange={setInputValue}
-          files={pendingFiles}
           onAddFiles={addFiles}
-          onRemoveFile={removeFile}
           onSend={handleSend}
           onPrepareDraft={prepareContractDraft}
+          hasDocuments={Object.keys(documents).length > 0}
         />
       </div>
     </div>

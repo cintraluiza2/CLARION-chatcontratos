@@ -8,6 +8,9 @@ class Parte(BaseModel):
     papel: str
     data_nascimento: Optional[str] = None
     filiacao: List[str] = []
+    estado_civil: Optional[str] = None
+    profissao: Optional[str] = None
+    endereco: Optional[str] = None
 
 class Imovel(BaseModel):
     endereco_completo: str

@@ -7,22 +7,19 @@ interface ChatInputProps {
   value: string;
   onChange: (v: string) => void;
 
-  files: File[];
   onAddFiles: (files: File[]) => void;
-  onRemoveFile: (i: number) => void;
 
   onSend: () => void;
   onPrepareDraft: () => void;
+  hasDocuments: boolean;
 }
-
 export default function ChatInput({
   value,
   onChange,
-  files,
   onAddFiles,
-  onRemoveFile,
   onSend,
   onPrepareDraft,
+  hasDocuments,
 }: ChatInputProps) {
   /* =========================
      SEND
@@ -37,27 +34,7 @@ export default function ChatInput({
   return (
     <div className="border-t border-gray-200 bg-white px-6 py-4">
       {/* FILE LIST */}
-      {files.length > 0 && (
-        <div className="mb-3 flex flex-wrap gap-2">
-          {files.map((file, idx) => (
-            <div
-              key={`${file.name}-${idx}`}
-              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-gray-50 px-3 py-1 text-xs"
-            >
-              <span className="max-w-[160px] truncate text-black">
-                {file.name}
-              </span>
-              <button
-                onClick={() => onRemoveFile(idx)}
-                className="text-gray-400 hover:text-gray-600"
-                title="Remover arquivo"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+
 
       {/* INPUT ROW */}
       <div className="flex items-center gap-3">
@@ -72,11 +49,6 @@ export default function ChatInput({
             if (!e.target.files) return;
 
             const selected = Array.from(e.target.files);
-
-            if (files.length + selected.length > 20) {
-              alert("O limite máximo é de 20 arquivos simultâneos.");
-              return;
-            }
 
             onAddFiles(selected);
             e.target.value = "";
@@ -124,22 +96,23 @@ export default function ChatInput({
         {/* Prepare draft */}
         <button
           onClick={onPrepareDraft}
-          title="Preparar dados do contrato"
-          className="
+          disabled={!hasDocuments}
+          title="Consolidar Contrato"
+          className={`
             h-11
             px-3
             rounded-xl
-            border border-amber-300
-            bg-amber-100
-            text-amber-700
             text-sm
             font-medium
-            hover:bg-amber-200
             transition
             whitespace-nowrap
-          "
+            ${hasDocuments
+              ? "border border-amber-300 bg-amber-100 text-amber-700 hover:bg-amber-200"
+              : "border border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed"
+            }
+          `}
         >
-          Preparar dados
+          Consolidar Contrato
         </button>
 
         {/* Send */}
