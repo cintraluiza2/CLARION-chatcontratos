@@ -87,7 +87,7 @@ def gerar_contrato_docx_bytes(
     draft: dict,
     template_key: TemplateKey,
     api_key: str,
-    model_name: str = "gemini-2.5-flash",
+    model_name: str = "gemini-2.5-pro",
     extra_text: str = "",
 ) -> bytes:
     if template_key not in TEMPLATE_MAP:

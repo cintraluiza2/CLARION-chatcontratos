@@ -22,18 +22,18 @@ def prepare_contract_draft(documentos: dict):
     consolide os dados necessários para um CONTRATO DE COMPRA E VENDA.
 
     Regras obrigatórias:
-    - Use SOMENTE os dados fornecidos
-    - NÃO invente informações
-    - Se houver conflito entre documentos, liste em "pendencias"
-    - Se faltar dado essencial, liste em "pendencias"
-    - Retorne JSON conforme o schema ContractDraft
+    - Use SOMENTE os dados fornecidos.
+    - NÃO invente informações. Se algo não estiver nos documentos, considere como pendente.
+    - Se houver conflito entre documentos (ex: CPFs diferentes para a mesma pessoa), liste detalhadamente em "pendencias".
+    - Se faltar qualquer dado essencial para o contrato (Nomes, CPFs, RGs, Endereços, Valor, Dados do Imóvel), liste o item em "pendencias" (ex: "Falta o CPF do comprador João Silva").
+    - Retorne JSON conforme o schema ContractDraft.
 
     Documentos:
     {documentos}
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.5-pro",
         contents=prompt,
         config={
             "response_mime_type": "application/json",

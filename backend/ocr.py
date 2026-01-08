@@ -18,7 +18,7 @@ def ler_docx(file_obj):
             if linha: texto.append(f"[Tabela]: {linha}")
     return "\n".join(texto)
 
-def analisar_documento(uploaded_file, model_name="gemini-2.0-flash"):
+def analisar_documento(uploaded_file, model_name="gemini-2.5-pro"):
     api_key = os.getenv("AI_API_KEY")
     client = genai.Client(api_key=api_key)
 

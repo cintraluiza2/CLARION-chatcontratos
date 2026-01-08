@@ -41,35 +41,66 @@ def detect_edit_endpoint(payload: dict):
     if not message:
         return {"is_edit_instruction": False}
     
+    api_key = os.getenv("AI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400, 
+            detail="Chave de IA não configurada. Verifique o arquivo .env no backend."
+        )
+
     try:
         result = detect_edit_instruction(message, documents)
         return result
     except Exception as e:
+        if "quota" in str(e).lower():
+            raise HTTPException(status_code=429, detail="Limite de uso da IA atingido. Tente novamente em um minuto.")
         return {"is_edit_instruction": False, "error": str(e)}
 
 @app.post("/api/ocr")
 async def ocr_endpoint(file: UploadFile = File(...)):
-    result = analisar_documento(file)
-    return {
-        "filename": file.filename,
-        "text": result["text"],
-        "data": result["data"],
-    }
+    api_key = os.getenv("AI_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=400, 
+            detail="Chave de IA não configurada. Verifique o arquivo .env no backend."
+        )
+
+    try:
+        result = analisar_documento(file)
+        if not result or not result.get("data"):
+            raise HTTPException(status_code=422, detail="Não consegui extrair dados deste arquivo. Ele parece estar ilegível ou vazio.")
+        return {
+            "filename": file.filename,
+            "text": result["text"],
+            "data": result["data"],
+        }
+    except Exception as e:
+        if "quota" in str(e).lower() or "resourceexhausted" in str(e).lower():
+            raise HTTPException(status_code=429, detail="Nossa cota de uso da IA atingiu o limite momentâneo. Aguarde um minuto e tente de novo.")
+        raise HTTPException(status_code=500, detail=f"Erro ao processar documento: {str(e)}")
 
 @app.post("/api/chat")
 async def chat_endpoint(payload: dict):
     api_key = os.getenv("AI_API_KEY")
     if not api_key:
-        raise RuntimeError("AI_API_KEY não encontrada no ambiente")
+        raise HTTPException(
+            status_code=400, 
+            detail="Chave de IA não configurada. Verifique o arquivo .env no backend."
+        )
 
-    response = chat_with_context(
-        api_key=api_key,
-        model_name=payload.get("model", "gemini-2.5-flash"),
-        chat_history=payload.get("history", []),
-        extracted_documents=payload.get("documents", {}),
-        user_message=payload["message"],
-    )
-    return {"response": response}
+    try:
+        response = chat_with_context(
+            api_key=api_key,
+            model_name=payload.get("model", "gemini-2.5-pro"),
+            chat_history=payload.get("history", []),
+            extracted_documents=payload.get("documents", {}),
+            user_message=payload["message"],
+        )
+        return {"response": response}
+    except Exception as e:
+        if "quota" in str(e).lower() or "resourceexhausted" in str(e).lower():
+            raise HTTPException(status_code=429, detail="Nossa cota de uso da IA atingiu o limite momentâneo. Aguarde um minuto e tente de novo.")
+        raise HTTPException(status_code=500, detail="Tive um pequeno tropeço ao processar sua dúvida. Pode tentar perguntar de novo com outras palavras?")
 
 @app.post("/api/draft")
 async def contract_draft_endpoint(payload: dict):
@@ -116,7 +147,7 @@ def contract_generate(payload: ContractGeneratePayload):
         draft=payload.draft,
         template_key=payload.template,
         api_key=gemini_key,
-        model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-pro"),
         extra_text=payload.extra_text or "",
     )
 

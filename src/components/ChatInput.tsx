@@ -74,7 +74,7 @@ export default function ChatInput({
             const selected = Array.from(e.target.files);
 
             if (files.length + selected.length > 20) {
-              alert("Você pode enviar no máximo 20 arquivos.");
+              alert("O limite máximo é de 20 arquivos simultâneos.");
               return;
             }
 
