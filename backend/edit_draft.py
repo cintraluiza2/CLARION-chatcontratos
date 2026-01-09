@@ -203,7 +203,7 @@ Retorne APENAS o JSON da instrução, sem explicações.
 """
 
     response = client.models.generate_content(
-        model="gemini-2.5-pro",
+        model="gemini-2.5-flash",
         contents=prompt,
         config={
             "response_mime_type": "application/json",
