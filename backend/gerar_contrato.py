@@ -109,7 +109,7 @@ def gerar_contrato_docx_bytes(
             "temperature": 0,
             "top_p": 0.95,
             "top_k": 40,
-            "max_output_tokens": 16000,
+            "max_output_tokens": 18000,
         },
     )
 
