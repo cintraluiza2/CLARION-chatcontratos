@@ -31,7 +31,7 @@ class DocumentoUnificado(BaseModel):
         "Matrícula de Imóvel",
         "Contrato de Compra e Venda",
         "Contrato de Locação",
-        "Extrato Financeiro / Demonstrativo de Pagamento", # 🔹 Adicionado para o seu PDF atual
+        "Extrato Financeiro / Demonstrativo de Pagamento", 
         "RG", "CNH", "Certidão de Nascimento", "Certidão de Casamento",
         "Certidão de Óbito", "Certidão de Divórcio", "Comprovante de Endereço",
         "Boleto/IPTU", "Outro"
