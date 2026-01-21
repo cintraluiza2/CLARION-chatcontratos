@@ -43,14 +43,16 @@ export default function ChatSidebar({ open, onToggle }: Props) {
   return (
     <aside className="flex w-64 flex-col bg-[#121212] border-r border-white/10">
       {/* Header / Logo */}
-      <div className="flex items-center justify-between px-6 py-6">
-        <span className="text-xl font-semibold text-white tracking-wide">
-          Clarion.
-        </span>
+      <div className="relative pl-2 pt-4 pb-2">
+        <img
+          src="/logo_clarion.png"
+          alt="Clarion Logo"
+          className="h-40 w-auto object-contain max-w-[85%]"
+        />
 
         <button
           onClick={onToggle}
-          className="text-gray-400 hover:text-white transition cursor-pointer"
+          className="absolute top-4 right-4 text-gray-400 hover:text-white transition cursor-pointer"
         >
           <PanelLeftClose size={18} />
         </button>
@@ -79,7 +81,7 @@ export default function ChatSidebar({ open, onToggle }: Props) {
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-white/10 px-6 py-4 space-y-4">
+      <div className="border-t border-white/10 px-6 py-4">
         {/* User */}
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-full bg-amber-500 flex items-center justify-center">
@@ -88,17 +90,12 @@ export default function ChatSidebar({ open, onToggle }: Props) {
 
           <div className="flex flex-col leading-tight">
             <span className="text-sm font-medium text-white">
-              {nickname || "Usuário"}
+              Batista Advogados
             </span>
             <span className="text-xs text-gray-400">
               Conta ativa
             </span>
           </div>
-        </div>
-
-        {/* Company Logo */}
-        <div className="h-10 rounded-lg bg-white/5 flex items-center justify-center text-xs text-gray-400">
-          LOGO DA EMPRESA
         </div>
       </div>
     </aside>

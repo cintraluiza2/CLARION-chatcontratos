@@ -10,9 +10,17 @@ from typing import Literal, Any, Dict, List, Optional
 from gerar_contrato import gerar_contrato_docx_bytes
 from fastapi.responses import Response
 from fastapi import HTTPException
+import time
+import asyncio
 from edit_draft import edit_contract_draft, detect_edit_instruction
 
-load_dotenv()
+load_dotenv(override=True)
+api_key_check = os.getenv("AI_API_KEY")
+if api_key_check:
+    print(f"🔑 [DEBUG] Chave de IA carregada: {api_key_check[:5]}...{api_key_check[-4:]}")
+else:
+    print("⚠️ [DEBUG] Falha ao carregar AI_API_KEY do .env!")
+
 app = FastAPI()
 
 app.add_middleware(
@@ -34,7 +42,7 @@ class DraftPayload(BaseModel):
 
 # ✅ NOVO ENDPOINT: Detecta se mensagem é instrução de edição
 @app.post("/api/detect-edit")
-def detect_edit_endpoint(payload: dict):
+async def detect_edit_endpoint(payload: dict):
     message = payload.get("message")
     documents = payload.get("documents", {})
     
@@ -48,10 +56,16 @@ def detect_edit_endpoint(payload: dict):
             detail="Chave de IA não configurada. Verifique o arquivo .env no backend."
         )
 
+    start_time = time.time()
     try:
-        result = detect_edit_instruction(message, documents)
+        print(f"🔍 [DETECT-EDIT] Iniciando detecção para mensagem: '{message[:50]}...'")
+        result = await asyncio.to_thread(detect_edit_instruction, message, documents)
+        duration = time.time() - start_time
+        print(f"✅ [DETECT-EDIT] Concluído em {duration:.2f}s")
         return result
     except Exception as e:
+        duration = time.time() - start_time
+        print(f"❌ [DETECT-EDIT] Erro após {duration:.2f}s: {e}")
         if "quota" in str(e).lower():
             raise HTTPException(status_code=429, detail="Limite de uso da IA atingido. Tente novamente em um minuto.")
         return {"is_edit_instruction": False, "error": str(e)}
@@ -65,16 +79,25 @@ async def ocr_endpoint(file: UploadFile = File(...)):
             detail="Chave de IA não configurada. Verifique o arquivo .env no backend."
         )
 
+    start_time = time.time()
     try:
-        result = analisar_documento(file)
+        print(f"📄 [OCR] Recebido arquivo: {file.filename}")
+        result = await asyncio.to_thread(analisar_documento, file)
+        duration = time.time() - start_time
+        print(f"✅ [OCR] Processamento concluído em {duration:.2f}s")
+        
         if not result or not result.get("data"):
             raise HTTPException(status_code=422, detail="Não consegui extrair dados deste arquivo. Ele parece estar ilegível ou vazio.")
+        
         return {
             "filename": file.filename,
             "text": result["text"],
             "data": result["data"],
+            "processing_time": f"{duration:.2f}s"
         }
     except Exception as e:
+        duration = time.time() - start_time
+        print(f"❌ [OCR] Erro após {duration:.2f}s: {e}")
         if "quota" in str(e).lower() or "resourceexhausted" in str(e).lower():
             raise HTTPException(status_code=429, detail="Nossa cota de uso da IA atingiu o limite momentâneo. Aguarde um minuto e tente de novo.")
         raise HTTPException(status_code=500, detail=f"Erro ao processar documento: {str(e)}")
@@ -88,14 +111,19 @@ async def chat_endpoint(payload: dict):
             detail="Chave de IA não configurada. Verifique o arquivo .env no backend."
         )
 
+    start_time = time.time()
     try:
-        response = chat_with_context(
+        print(f"💬 [CHAT] Processando mensagem do usuário...")
+        response = await asyncio.to_thread(
+            chat_with_context,
             api_key=api_key,
-            model_name=payload.get("model", "gemini-2.5-pro"),
+            model_name=payload.get("model", "gemini-2.5-pro"), # Mantendo o nome original se desejar, mas atente à versão
             chat_history=payload.get("history", []),
             extracted_documents=payload.get("documents", {}),
             user_message=payload["message"],
         )
+        duration = time.time() - start_time
+        print(f"✅ [CHAT] Resposta gerada em {duration:.2f}s")
         return {"response": response}
     except Exception as e:
         if "quota" in str(e).lower() or "resourceexhausted" in str(e).lower():
@@ -138,7 +166,7 @@ async def contract_draft_endpoint(payload: dict):
     return draft
 
 @app.post("/api/contract/generate")
-def contract_generate(payload: ContractGeneratePayload):
+async def contract_generate(payload: ContractGeneratePayload):
     gemini_key = os.getenv("AI_API_KEY")
     if not gemini_key:
         return Response("AI_API_KEY não definida no .env", status_code=500)
@@ -159,7 +187,7 @@ def contract_generate(payload: ContractGeneratePayload):
     )
 
 @app.post("/api/edit")
-def edit_draft(payload: dict):
+async def edit_draft(payload: dict):
     draft = payload.get("draft")
     message = payload.get("message")
 

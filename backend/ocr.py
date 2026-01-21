@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 from google import genai
 from docx import Document
@@ -19,6 +20,7 @@ def ler_docx(file_obj):
     return "\n".join(texto)
 
 def analisar_documento(uploaded_file, model_name="gemini-2.5-pro"):
+    start_total = time.time()
     api_key = os.getenv("AI_API_KEY")
     client = genai.Client(api_key=api_key)
 
@@ -32,28 +34,35 @@ def analisar_documento(uploaded_file, model_name="gemini-2.5-pro"):
     else:
         temp_name = f"temp_{uuid.uuid4().hex}{ext}"
         try:
+            t_start_upload = time.time()
             with open(temp_name, "wb") as f:
                 f.write(uploaded_file.file.read())
             file_ref = client.files.upload(file=temp_name, config={"display_name": filename})
+            print(f"⏱️ [OCR] Upload para Google concluído em {time.time() - t_start_upload:.2f}s")
             conteudo_envio = [file_ref]
         finally:
             if os.path.exists(temp_name): os.remove(temp_name)
 
-    # PROMPT COM LIMITAÇÃO PARA NÃO ESTOURAR O JSON
+    # PROMPT OTIMIZADO PARA PERFORMANCE
     conteudo_envio.append("""
-    Analise este arquivo integralmente. Identifique cada documento individual.
+    Siga este fluxo lógico para máxima velocidade e precisão:
     
-    IMPORTANTE PARA O CRONOGRAMA FINANCEIRO:
-    O arquivo contém centenas de parcelas. Para evitar erros de limite de texto:
-    1. Extraia os dados das primeiras 20 parcelas.
-    2. Extraia os dados das últimas 10 parcelas.
-    3. No resumo_conteudo, mencione o total de parcelas encontradas (ex: 360 parcelas).
+    1. IDENTIFICAÇÃO RÁPIDA: Identifique o tipo de cada documento no arquivo.
     
-    Para cada documento, preencha o schema DocumentoUnificado.
-    Retorne uma LISTA de objetos JSON.
+    2. EXTRAÇÃO CONDICIONAL (EXTREMA IMPORTÂNCIA):
+       - Se for Identidade (CNH, RG, Certidão): Extraia apenas dados pessoais. NÃO procure tabelas ou parcelas. Deixe 'cronograma_financeiro' como uma lista vazia [].
+       - Se for Comprovante de Endereço: Extraia apenas o endereço e nome. NÃO procure parcelas.
+       - Se for Extrato Financeiro ou Contrato:
+         * AÍ SIM, procure o cronograma de parcelas.
+         * Extraia apenas as primeiras 20 e as últimas 10 parcelas para economizar tempo.
+         * No 'resumo_conteudo', cite o total (ex: 'Contém 120 parcelas no total').
+    
+    3. OUTPUT: Retorne uma LISTA de objetos JSON seguindo o schema DocumentoUnificado.
+    Seja conciso no 'resumo_conteudo'.
     """)
 
     try:
+        t_start_gen = time.time()
         response = client.models.generate_content(
             model=model_name,
             contents=conteudo_envio,
@@ -62,6 +71,8 @@ def analisar_documento(uploaded_file, model_name="gemini-2.5-pro"):
                 "response_schema": list[DocumentoUnificado],
             }
         )
+        print(f"⏱️ [OCR] Geração do modelo concluída em {time.time() - t_start_gen:.2f}s")
+        
 
         lista_documentos = response.parsed
 

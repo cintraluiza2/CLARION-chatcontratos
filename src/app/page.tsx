@@ -3,7 +3,7 @@
 import { useEffect, useState, DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Hourglass } from "lucide-react";
 
 import ChatSidebar from "../components/ChatSideBar";
 import ChatHeader from "../components/ChatHeader";
@@ -107,12 +107,13 @@ export default function ChatPage() {
   const [pendingInstructions, setPendingInstructions] = useState<PendingInstruction[]>([]);
 
   /* =========================
-     AUTH GUARD
+     AUTH GUARD & TIMER
      ========================= */
   useEffect(() => {
     const email = localStorage.getItem("email");
     if (!email) router.replace("/");
   }, [router]);
+
 
   const handleLogout = () => {
     localStorage.removeItem("email");
@@ -178,6 +179,7 @@ export default function ChatPage() {
         method: "POST",
         body: formData,
       });
+
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ detail: "Erro desconhecido" }));
@@ -499,11 +501,13 @@ export default function ChatPage() {
       )}
 
       {blockingMessage && (
-        <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center backdrop-blur-sm">
-          <div className="rounded-xl bg-white px-8 py-6 text-center shadow-2xl">
-            <div className="mb-4 text-4xl animate-bounce">⏳</div>
-            <h3 className="text-lg font-bold text-gray-800 mb-2">Aguarde...</h3>
-            <p className="text-gray-500 text-sm">{blockingMessage}</p>
+        <div className="fixed inset-0 z-[100] bg-black/70 flex items-center justify-center backdrop-blur-md">
+          <div className="rounded-2xl bg-white p-10 text-center shadow-[0_0_50px_rgba(0,0,0,0.3)] max-w-sm flex flex-col items-center">
+            <div className="mb-6 animate-pulse">
+              <Hourglass className="w-16 h-16 text-amber-500" />
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-3">Processando...</h3>
+            <p className="text-gray-600 text-base mb-6 leading-relaxed">{blockingMessage}</p>
           </div>
         </div>
       )}
